@@ -17,15 +17,17 @@ export const getMessages = async (req: Request, res: Response) => {
         .from('messages')
         .select(`
           *,
-          author:profiles!messages_author_id_fkey(
+          author:profiles!author_id(
             id, username, display_name, avatar_url, status, subscription_tier
-          ),
-          reply_to:messages!messages_reply_to_id_fkey(
+          )
+          /*
+          ,reply_to:messages!reply_to_id(
             id, content, author_id, is_deleted,
-            author:profiles!messages_author_id_fkey(
+            author:profiles!author_id(
                 id, username, display_name, avatar_url
             )
           )
+          */
         `)
         .eq('channel_id', channelId)
         .order('created_at', { ascending: true })
@@ -89,7 +91,7 @@ export const sendMessage = async (req: Request, res: Response) => {
         })
         .select(`
       *,
-      author:profiles!messages_author_id_fkey(
+      author:profiles!author_id(
         id, username, display_name, avatar_url, status, subscription_tier
       )
     `)

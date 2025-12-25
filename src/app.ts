@@ -33,6 +33,10 @@ app.get('/', (req: Request, res: Response) => {
     res.send('Express + TypeScript Server is running');
 });
 
-app.listen(port, () => {
-    console.log(`[server]: Server is running at http://localhost:${port}`);
-});
+export default app;
+
+if (process.env.NODE_ENV !== 'production') {
+    app.listen(port, () => {
+        console.log(`[server]: Server is running at http://localhost:${port}`);
+    });
+}
