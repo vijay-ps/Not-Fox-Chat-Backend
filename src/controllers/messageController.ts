@@ -16,11 +16,17 @@ export const getMessages = async (req: Request, res: Response) => {
     const { data, error } = await supabase
         .from('messages')
         .select(`
-      *,
-      author:profiles!messages_author_id_fkey(
-        id, username, display_name, avatar_url, status, subscription_tier
-      )
-    `)
+          *,
+          author:profiles!messages_author_id_fkey(
+            id, username, display_name, avatar_url, status, subscription_tier
+          ),
+          reply_to:messages!messages_reply_to_id_fkey(
+            id, content, author_id, is_deleted,
+            author:profiles!messages_author_id_fkey(
+                id, username, display_name, avatar_url
+            )
+          )
+        `)
         .eq('channel_id', channelId)
         .order('created_at', { ascending: true })
         .limit(100);
@@ -30,28 +36,27 @@ export const getMessages = async (req: Request, res: Response) => {
         return;
     }
 
+    const messageIds = (data || []).map((msg: any) => msg.id);
+    const { data: allReactions } = await supabase
+        .from('message_reactions')
+        .select('message_id, emoji')
+        .in('message_id', messageIds);
 
-    const messagesWithReactions = await Promise.all(
-        (data || []).map(async (msg: any) => {
-            const { data: reactions } = await supabase
-                .from('message_reactions')
-                .select('emoji')
-                .eq('message_id', msg.id);
+    const messagesWithReactions = (data || []).map((msg: any) => {
+        const reactions = allReactions?.filter((r: any) => r.message_id === msg.id) || [];
+        const reactionCounts = reactions.reduce((acc: any, r: any) => {
+            acc[r.emoji] = (acc[r.emoji] || 0) + 1;
+            return acc;
+        }, {});
 
-            const reactionCounts = reactions?.reduce((acc: any, r: any) => {
-                acc[r.emoji] = (acc[r.emoji] || 0) + 1;
-                return acc;
-            }, {}) || {};
-
-            return {
-                ...msg,
-                reactions: Object.entries(reactionCounts).map(([emoji, count]) => ({
-                    emoji,
-                    count,
-                })),
-            };
-        })
-    );
+        return {
+            ...msg,
+            reactions: Object.entries(reactionCounts).map(([emoji, count]) => ({
+                emoji,
+                count,
+            })),
+        };
+    });
 
     res.json(messagesWithReactions);
 };
@@ -194,9 +199,12 @@ export const deleteMessage = async (req: Request, res: Response) => {
     const { messageId } = req.params;
     const supabase = getSupabase(req);
 
+    // Use 'embeds' to store deletion info as a workaround for missing 'is_deleted' column
     const { error } = await supabase
         .from('messages')
-        .delete()
+        .update({
+            embeds: [{ type: 'deleted', deleted_at: new Date().toISOString() }]
+        })
         .eq('id', messageId);
 
     if (error) {
@@ -204,5 +212,5 @@ export const deleteMessage = async (req: Request, res: Response) => {
         return;
     }
 
-    res.json({ message: 'Message deleted' });
+    res.json({ message: 'Message soft-deleted' });
 };
