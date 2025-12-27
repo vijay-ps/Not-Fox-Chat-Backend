@@ -112,7 +112,7 @@ export const sendMessage = async (req: Request, res: Response) => {
 
 const handleAIResponse = async (channelId: string, userContent: string, userId: string) => {
 
-    const AI_PROFILE_ID = '06e81cb9-aac4-49f6-818e-2ca59f60267b';
+    const AI_PROFILE_ID_HARDCODED = '06e81cb9-aac4-49f6-818e-2ca59f60267b';
     const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
 
     if (!GEMINI_API_KEY) {
@@ -165,11 +165,16 @@ Respond helpfully and concisely.`;
 
         if (channelData?.server_id) {
 
+            // Try to find the AI profile id dynamically if possible, or use hardcoded
+            let aiProfileId = AI_PROFILE_ID_HARDCODED;
+            const { data: aiProfile } = await supabaseAdmin.from('profiles').select('id').eq('username', 'NotFox AI').single();
+            if (aiProfile) aiProfileId = aiProfile.id;
+
             const { error: joinError } = await supabaseAdmin
                 .from('server_members')
                 .insert({
                     server_id: channelData.server_id,
-                    profile_id: AI_PROFILE_ID
+                    profile_id: aiProfileId
                 });
 
             if (joinError && !joinError.message.includes('duplicate')) {
@@ -177,19 +182,38 @@ Respond helpfully and concisely.`;
             } else {
 
             }
+
+            // Send the message
+            const { error: insertError } = await supabaseAdmin.from('messages').insert({
+                channel_id: channelId,
+                author_id: aiProfileId,
+                content: aiText,
+            });
+
+            if (insertError) {
+                console.error('[AI] Insert error:', insertError);
+            }
         }
 
 
-        const { error: insertError } = await supabaseAdmin.from('messages').insert({
-            channel_id: channelId,
-            author_id: AI_PROFILE_ID,
-            content: aiText,
-        });
+        // Deprecated block: The message sending was moved inside the if(channelData?.server_id) block to ensure we have the correct AI ID if we fetched it.
+        // If channelData is null (e.g. DM), we might need to handle that separately, but for now AI is likely only in servers.
+        // If we want to support DMs, we should use the AI ID directly.
 
-        if (insertError) {
-            console.error('[AI] Insert error:', insertError);
-        } else {
+        if (!channelData?.server_id) {
+            let aiProfileId = AI_PROFILE_ID_HARDCODED;
+            const { data: aiProfile } = await supabaseAdmin.from('profiles').select('id').eq('username', 'NotFox AI').single();
+            if (aiProfile) aiProfileId = aiProfile.id;
 
+            const { error: insertError } = await supabaseAdmin.from('messages').insert({
+                channel_id: channelId,
+                author_id: aiProfileId,
+                content: aiText,
+            });
+
+            if (insertError) {
+                console.error('[AI] Insert error (DM/Other):', insertError);
+            }
         }
 
     } catch (error) {
@@ -201,11 +225,13 @@ export const deleteMessage = async (req: Request, res: Response) => {
     const { messageId } = req.params;
     const supabase = getSupabase(req);
 
-    // Use 'embeds' to store deletion info as a workaround for missing 'is_deleted' column
+    // Use 'is_deleted' column for soft delete
     const { error } = await supabase
         .from('messages')
         .update({
-            embeds: [{ type: 'deleted', deleted_at: new Date().toISOString() }]
+            is_deleted: true,
+            content: 'This message was deleted', // Optional: clear content
+            embeds: [] // Clear embeds if any
         })
         .eq('id', messageId);
 

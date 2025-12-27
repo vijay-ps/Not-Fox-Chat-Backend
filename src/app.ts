@@ -37,7 +37,7 @@ export default app;
 
 // Only skip listening if exporting for Vercel/Serverless explicitly
 // Most hosting providers (Render, Heroku, Railway) need app.listen()
-if (process.env.NODE_ENV !== 'production' || process.env.VERCEL !== '1') {
+if (process.env.NODE_ENV !== 'production' && process.env.VERCEL !== '1') {
     app.listen(port, () => {
         console.log(`[server]: Server is running at http://localhost:${port}`);
     });

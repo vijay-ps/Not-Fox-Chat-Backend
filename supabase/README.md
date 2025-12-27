@@ -1,53 +1,70 @@
-# Supabase Setup Guide
+# 🚀 Blue Lock Connect - Database Setup
 
-This directory contains everything needed to set up the database environment for **Blue Lock Connect**.
+Hey! This folder has everything you need to set up your own version of the **NotFox** database. It's designed to be super easy—just a few commands and you're good to go.
 
-## Getting Started
+## 🛠️ Quick Start Guide
 
-To get the project running with your own Supabase instance, follow these steps:
+Follow these steps to get your own backend running in minutes:
 
-### 1. Execute SQL Schema
+### 1. Get Ready
 
-The easiest way to set up your database is to copy the contents of `full_schema.sql` and run them in the **SQL Editor** of your Supabase Dashboard.
+First, make sure you have a Supabase project created.
 
-1.  Open your [Supabase Project](https://supabase.com/dashboard).
-2.  Go to the **SQL Editor** in the left sidebar.
-3.  Click **New Query**.
-4.  Paste the entire content of `full_schema.sql`.
-5.  Click **Run**.
+- Go to [Supabase.com](https://supabase.com/dashboard) and create a **New Project**.
+- Go to **Project Settings** -> **General** and copy your **Reference ID** (it's that random string like `uwozatbfcstgr...`).
+- Make sure you have the Supabase tool installed:
+  ```bash
+  npm install -g supabase
+  ```
 
-### 2. Manual Setup (Alternative)
+### 2. Connect Your Project
 
-If you prefer using the Supabase CLI, you can push the migrations:
+Open your terminal in this folder (`backend/supabase`) or the main backend folder and run:
 
-1.  Install Supabase CLI: `npm install -g supabase`
-2.  Login: `supabase login`
-3.  Initialize (if not done): `supabase init`
-4.  Link your project: `supabase link --project-ref your-project-ref`
-5.  Push migrations: `supabase db push`
+1.  **Log in to your account:**
 
-_Note: The `migrations/` folder contains historical incremental changes, while `full_schema.sql` is a consolidated snapshot._
+    ```bash
+    npx supabase login
+    ```
 
-### 3. Storage Configuration
+2.  **Link your specific project:**
+    (Replace `<your-project-id>` with the ID you copied earlier!)
 
-The `full_schema.sql` automatically creates the `chat-attachments` bucket. Ensure:
+    ```bash
+    npx supabase link --project-ref <your-project-id>
+    ```
 
-- The bucket is set to **Public**.
-- RLS policies allow authenticated users to upload files.
+3.  **Push the Magic Button (Deploy):**
+    This single command creates all the tables, permissions, and even adds the AI user for you.
+    ```bash
+    npx supabase db push
+    ```
+    _If it asks simply type `yes`._
 
-### 4. Edge Functions
+🎉 **That's it!** Your database is now basically identical to the main one.
 
-If you are using the AI features, you need to deploy the `ai-chat` function:
+---
 
-```bash
-supabase functions deploy ai-chat
-supabase secrets set GEMINI_API_KEY=your_key_here
-```
+### 🤖 (Optional) Set up AI Chat
 
-## Database Architecture Overview
+If you want the AI Chatbot to work, you need to deploy the "brain" (Edge Function):
 
-- **Profiles**: Extends `auth.users` with social and status info.
-- **Servers & Channels**: Core organizational structure.
-- **Messages & DMs**: Real-time communication tables.
-- **Friendships**: Relationship management.
-- **Realtime**: Enabled for Messages, DMs, and Notifications.
+1.  **Deploy the function:**
+
+    ```bash
+    npx supabase functions deploy ai-chat
+    ```
+
+2.  **Add your API Key:**
+    The AI needs a Google Gemini API key to think. Get one from Google AI Studio, then run:
+    ```bash
+    npx supabase secrets set GEMINI_API_KEY=your_actual_api_key_here
+    ```
+
+---
+
+### 📂 What's inside this folder?
+
+- `migrations/`: The history book of our database. It teaches Supabase how to build the tables.
+- `seed.sql`: The starter pack. It puts the default "NotFox AI" user into your database so the chat works.
+- `functions/`: The code for the AI bot.

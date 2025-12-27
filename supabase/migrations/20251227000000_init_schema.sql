@@ -1,5 +1,5 @@
--- Blue Lock Connect - Full Database Schema
--- Last Updated: 2025-12-25
+-- Blue Lock Connect - Init Schema
+-- Generated: 2025-12-27
 
 -- ==========================================
 -- 1. EXTENSIONS & TYPES
@@ -212,6 +212,38 @@ CREATE TABLE IF NOT EXISTS public.user_badges (
     UNIQUE(profile_id, badge_type)
 );
 
+-- Subscriptions
+CREATE TABLE IF NOT EXISTS public.subscriptions (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    profile_id UUID REFERENCES public.profiles(id) ON DELETE CASCADE NOT NULL UNIQUE,
+    tier subscription_tier DEFAULT 'nitro',
+    started_at TIMESTAMPTZ DEFAULT now(),
+    expires_at TIMESTAMPTZ,
+    is_active BOOLEAN DEFAULT true,
+    features JSONB DEFAULT '{"animated_avatar": true, "custom_banner": true, "higher_upload_limit": true, "custom_emojis": true}'
+);
+
+-- Server boosts
+CREATE TABLE IF NOT EXISTS public.server_boosts (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    server_id UUID REFERENCES public.servers(id) ON DELETE CASCADE NOT NULL,
+    profile_id UUID REFERENCES public.profiles(id) ON DELETE CASCADE NOT NULL,
+    started_at TIMESTAMPTZ DEFAULT now(),
+    expires_at TIMESTAMPTZ
+);
+
+-- AI chat history for @AI mentions
+CREATE TABLE IF NOT EXISTS public.ai_conversations (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    profile_id UUID REFERENCES public.profiles(id) ON DELETE CASCADE NOT NULL,
+    channel_id UUID REFERENCES public.channels(id) ON DELETE CASCADE,
+    prompt TEXT NOT NULL,
+    response TEXT,
+    model TEXT DEFAULT 'google/gemini-2.5-flash',
+    tokens_used INTEGER DEFAULT 0,
+    created_at TIMESTAMPTZ DEFAULT now()
+);
+
 -- ==========================================
 -- 3. FUNCTIONS & TRIGGERS
 -- ==========================================
@@ -267,6 +299,27 @@ CREATE TRIGGER update_messages_updated_at BEFORE UPDATE ON public.messages FOR E
 DROP TRIGGER IF EXISTS update_direct_messages_updated_at ON public.direct_messages;
 CREATE TRIGGER update_direct_messages_updated_at BEFORE UPDATE ON public.direct_messages FOR EACH ROW EXECUTE FUNCTION public.update_updated_at();
 
+-- Function to update member count
+CREATE OR REPLACE FUNCTION public.update_server_member_count()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+SECURITY DEFINER SET search_path = public
+AS $$
+BEGIN
+  IF TG_OP = 'INSERT' THEN
+    UPDATE servers SET member_count = member_count + 1 WHERE id = NEW.server_id;
+  ELSIF TG_OP = 'DELETE' THEN
+    UPDATE servers SET member_count = member_count - 1 WHERE id = OLD.server_id;
+  END IF;
+  RETURN COALESCE(NEW, OLD);
+END;
+$$;
+
+DROP TRIGGER IF EXISTS on_server_member_change ON public.server_members;
+CREATE TRIGGER on_server_member_change
+  AFTER INSERT OR DELETE ON public.server_members
+  FOR EACH ROW EXECUTE FUNCTION public.update_server_member_count();
+
 -- Function to create DM conversation
 CREATE OR REPLACE FUNCTION public.create_dm(p_other_user_id UUID)
 RETURNS UUID
@@ -320,13 +373,19 @@ ALTER TABLE public.followers ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.notifications ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.user_badges ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.friendships ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.subscriptions ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.server_boosts ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.ai_conversations ENABLE ROW LEVEL SECURITY;
 
 -- Policies
 CREATE POLICY "Profiles viewable by everyone" ON public.profiles FOR SELECT USING (true);
 CREATE POLICY "Profiles manageable by owner" ON public.profiles FOR ALL USING (auth.uid() = user_id);
+CREATE POLICY "Users can insert their own profile" ON public.profiles FOR INSERT WITH CHECK (auth.uid() = user_id);
+CREATE POLICY "Users can update their own profile" ON public.profiles FOR UPDATE USING (auth.uid() = user_id);
 
 CREATE POLICY "Servers viewable by members or public" ON public.servers FOR SELECT USING (is_public OR id IN (SELECT server_id FROM server_members WHERE profile_id IN (SELECT id FROM profiles WHERE user_id = auth.uid())));
 CREATE POLICY "Servers manageable by owner" ON public.servers FOR ALL USING (owner_id IN (SELECT id FROM profiles WHERE user_id = auth.uid()));
+CREATE POLICY "Authenticated users can create servers" ON public.servers FOR INSERT WITH CHECK (owner_id IN (SELECT id FROM profiles WHERE user_id = auth.uid()));
 
 CREATE POLICY "Server members viewable by server members" ON public.server_members FOR SELECT USING (server_id IN (SELECT server_id FROM server_members WHERE profile_id IN (SELECT id FROM profiles WHERE user_id = auth.uid())));
 CREATE POLICY "Users can join servers" ON public.server_members FOR INSERT WITH CHECK (true);
@@ -335,7 +394,7 @@ CREATE POLICY "Members can leave or owners kick" ON public.server_members FOR DE
 CREATE POLICY "Channels viewable by server members" ON public.channels FOR SELECT USING (server_id IN (SELECT server_id FROM server_members WHERE profile_id IN (SELECT id FROM profiles WHERE user_id = auth.uid())));
 CREATE POLICY "Channels manageable by server owners" ON public.channels FOR ALL USING (server_id IN (SELECT id FROM servers WHERE owner_id IN (SELECT id FROM profiles WHERE user_id = auth.uid())));
 
-CREATE POLICY "Messages viewable by channel members" ON public.messages FOR SELECT USING (true); -- Simplified, check server membership if needed
+CREATE POLICY "Messages viewable by channel members" ON public.messages FOR SELECT USING (true); 
 CREATE POLICY "Messages manageable by author" ON public.messages FOR ALL USING (author_id IN (SELECT id FROM profiles WHERE user_id = auth.uid()));
 
 CREATE POLICY "DMs viewable by participants" ON public.direct_messages FOR SELECT USING (conversation_id IN (SELECT conversation_id FROM dm_participants WHERE profile_id IN (SELECT id FROM profiles WHERE user_id = auth.uid())));
@@ -371,18 +430,3 @@ ON CONFLICT (id) DO NOTHING;
 
 CREATE POLICY "Anyone can view chat attachments" ON storage.objects FOR SELECT USING (bucket_id = 'chat-attachments');
 CREATE POLICY "Authenticated users can upload chat attachments" ON storage.objects FOR INSERT WITH CHECK (bucket_id = 'chat-attachments' AND auth.role() = 'authenticated');
-
--- ==========================================
--- 7. SEED DATA
--- ==========================================
-INSERT INTO public.profiles (id, user_id, username, display_name, avatar_url, bio, status, subscription_tier)
-VALUES (
-    '06e81cb9-aac4-49f6-818e-2ca59f60267b', 
-    '00000000-0000-0000-0000-000000000000', -- Virtual AI User
-    'NotFox AI', 
-    'NotFox Assistant', 
-    'https://api.dicebear.com/7.x/bottts/svg?seed=NotFoxAI',
-    'I am the built-in AI assistant for NotFox. Mention me using @AI to get help!',
-    'online',
-    'nitro'
-) ON CONFLICT (id) DO NOTHING;
